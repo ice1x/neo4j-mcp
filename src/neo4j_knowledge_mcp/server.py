@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -18,15 +20,26 @@ _NEO4J_USER = os.getenv("NEO4J_USERNAME", "neo4j")
 _NEO4J_PASS = os.getenv("NEO4J_PASSWORD", "password")
 _NEO4J_DB = os.getenv("NEO4J_DATABASE", "neo4j")
 
+kg = KnowledgeGraph(uri=_NEO4J_URI, username=_NEO4J_USER, password=_NEO4J_PASS, database=_NEO4J_DB)
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP) -> AsyncIterator[None]:
+    await kg.connect()
+    try:
+        yield
+    finally:
+        await kg.close()
+
+
 mcp = FastMCP(
     "neo4j-knowledge-graph",
-    description=(
+    instructions=(
         "Knowledge Graph MCP — store and query project knowledge, "
         "domain models, and schema migrations in Neo4j."
     ),
+    lifespan=lifespan,
 )
-
-kg = KnowledgeGraph(uri=_NEO4J_URI, username=_NEO4J_USER, password=_NEO4J_PASS, database=_NEO4J_DB)
 
 
 def _json(obj: Any) -> str:
@@ -36,18 +49,6 @@ def _json(obj: Any) -> str:
             return o.isoformat()
         return str(o)
     return json.dumps(obj, indent=2, default=default, ensure_ascii=False)
-
-
-# ── Lifecycle ─────────────────────────────────────────────────────────
-
-@mcp.lifecycle("startup")
-async def startup() -> None:
-    await kg.connect()
-
-
-@mcp.lifecycle("shutdown")
-async def shutdown() -> None:
-    await kg.close()
 
 
 # ── Tools: Entities ───────────────────────────────────────────────────
