@@ -1,0 +1,173 @@
+# AGENTS.md
+
+## MCP is your memory — use it
+
+> **If `knowledge-graph` MCP tools are available in your tool list, you MUST use them.**
+> Do NOT say "MCP is not connected". If you see tools like `create_entity`,
+> `add_migration`, `get_project_graph` — the MCP **is** connected. Use it.
+
+If you are unsure whether MCP is available, try calling `list_projects`. If it works, MCP is live.
+
+---
+
+## Step 0 — Determine your project name
+
+Before doing anything else, determine the **project name** for this repository.
+Use the repository directory name (e.g. `antigram`, `my-app`, `billing-service`).
+
+**This name MUST appear in every `:Entity` node and every MCP call you make.**
+It is the key that isolates this project's data from all other projects in the
+shared Neo4j database.
+
+```
+# One Neo4j instance, many projects — isolation via `project` property:
+:Entity {name: 'parser',      project: 'antigram'}      ← only antigram sees this
+:Entity {name: 'AuthService', project: 'billing-service'} ← only billing sees this
+```
+
+---
+
+## Graph schema — read BEFORE writing any Cypher
+
+The MCP server discovers projects and entities **only** through the `:Entity` label
+and the `project` property. If a node lacks either of these, it is **invisible** to
+`list_projects`, `get_project_graph`, `search_knowledge`, and `get_entity`.
+
+### Rule: every domain node MUST be `:Entity` with a `project` property
+
+Use `e.type` for domain semantics (Module, Struct, Service, …) — **NOT** a custom Neo4j label.
+
+```cypher
+-- ✅ CORRECT — visible to all MCP tools
+MERGE (e:Entity {name: 'config', project: '<PROJECT>'})
+SET e.type = 'Module',
+    e.observations = coalesce(e.observations, []) + ['Handles app configuration']
+
+-- ❌ WRONG — creates :Module node, invisible to MCP
+CREATE (m:Module {name: 'config'})
+```
+
+### Relationships — both endpoints must be `:Entity` within the same project
+
+```cypher
+-- ✅ CORRECT
+MATCH (a:Entity {name: 'config',      project: '<PROJECT>'})
+MATCH (b:Entity {name: 'AppSettings', project: '<PROJECT>'})
+MERGE (a)-[:DEFINES]->(b)
+
+-- ❌ WRONG — custom labels, MCP will not traverse these
+MATCH (m:Module {name: 'config'})
+MATCH (s:Struct {name: 'AppSettings'})
+MERGE (m)-[:DEFINES]->(s)
+```
+
+### Required node shape
+
+| Property        | Required | Description                                         |
+|-----------------|----------|-----------------------------------------------------|
+| label `:Entity` | **yes**  | The only label the MCP server queries               |
+| `name`          | **yes**  | Unique identifier within the project                |
+| `project`       | **yes**  | Project name — used for filtering and `list_projects`|
+| `type`          | **yes**  | Domain type: Module, Struct, Service, Decision, …   |
+| `observations`  | optional | Append-only list of free-text notes                 |
+| any other key   | optional | Arbitrary properties (`SET e.foo = 'bar'`)          |
+
+---
+
+## Mandatory workflow for every subtask
+
+1. **Before starting work** — call `get_project_graph("<PROJECT>")` to load context.
+2. **After completing each subtask** (not at the end of the session — after **each** subtask):
+   - Call `create_entity` / `create_relationship` for any new or changed components.
+   - Call `add_observations` to record decisions, trade-offs, or notes.
+   - Call `add_migration` with the Cypher that captures the structural change.
+   - Call `apply_migration` to execute it immediately.
+3. **Never batch migrations** — one subtask = one migration, committed right away.
+4. **Never skip the graph update** saying "I'll do it later" or "I'll batch them at the end".
+
+---
+
+## Knowledge Persistence Rule
+
+In addition to live MCP calls, **persist each migration as a numbered Python file** so the knowledge is version-controlled alongside the code.
+
+### Migration file format
+
+Create files in `migrations/` with the naming convention:
+
+```
+migrations/
+  001_initial_domain_model.py
+  002_add_payment_service.py
+  003_refactor_auth_flow.py
+  ...
+```
+
+Each migration file must:
+
+1. Be a standalone Python script.
+2. Write a record to `migrations/migration.log` with the version number and UTC timestamp.
+3. Contain the Cypher queries (via the Neo4j driver) that apply the knowledge to the graph.
+4. **Use `:Entity` label and `project` property in every node** — follow the schema above.
+
+### Template
+
+> Replace `<PROJECT>` with your actual project name (see Step 0).
+
+```python
+"""003 — Refactor auth flow."""
+
+import datetime
+from pathlib import Path
+
+VERSION = "003"
+DESCRIPTION = "Refactor auth flow"
+PROJECT = "<PROJECT>"  # ← replace with your project name
+
+CYPHER_UP = """
+MERGE (e:Entity {name: 'AuthService', project: $project})
+SET e.type = 'Service',
+    e.observations = coalesce(e.observations, []) + ['Extracted from UserService in session 3']
+"""
+
+CYPHER_DOWN = """
+MATCH (e:Entity {name: 'AuthService', project: $project}) DETACH DELETE e
+"""
+
+
+def log(version: str, description: str) -> None:
+    log_path = Path(__file__).resolve().parent / "migration.log"
+    ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with open(log_path, "a") as f:
+        f.write(f"{ts}  v{version}  {description}\n")
+
+
+def run(tx) -> None:
+    tx.run(CYPHER_UP, project=PROJECT)
+
+
+if __name__ == "__main__":
+    log(VERSION, DESCRIPTION)
+    print(f"Logged migration v{VERSION}: {DESCRIPTION}")
+    print("Run with Neo4j session.execute_write(run) to apply.")
+```
+
+### Rules for the agent
+
+- **Always** replace `<PROJECT>` with the actual project name — never leave the placeholder.
+- **Always** increment the migration number.
+- **Always** call `log()` so `migration.log` has a continuous audit trail.
+- Keep `CYPHER_UP` idempotent (`MERGE` over `CREATE`).
+- Provide `CYPHER_DOWN` for reversibility when practical.
+- One migration per logical change — do not bundle unrelated changes.
+- Commit the migration file together with the code it documents.
+- **After writing the file**, also call `add_migration` + `apply_migration` via MCP so the live graph is updated immediately (don't just write files — push to Neo4j too).
+- **Never** use custom Neo4j labels (`:Module`, `:Struct`, `:Task`, …) instead of `:Entity`. Domain typing goes into `e.type`.
+
+### Example `migration.log`
+
+```
+2025-06-01T14:23:00+00:00  v001  Initial domain model
+2025-06-02T09:15:44+00:00  v002  Add payment service
+2025-06-03T17:42:11+00:00  v003  Refactor auth flow
+```
