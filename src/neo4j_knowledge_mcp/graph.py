@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from neo4j import AsyncGraphDatabase, AsyncDriver
+from neo4j import AsyncGraphDatabase, AsyncDriver, NotificationDisabledCategory
 
 
 @dataclass
@@ -19,7 +19,11 @@ class KnowledgeGraph:
     _driver: AsyncDriver | None = field(default=None, repr=False)
 
     async def connect(self) -> None:
-        self._driver = AsyncGraphDatabase.driver(self.uri, auth=(self.username, self.password))
+        self._driver = AsyncGraphDatabase.driver(
+            self.uri,
+            auth=(self.username, self.password),
+            notifications_disabled_categories=[NotificationDisabledCategory.SCHEMA],
+        )
         await self._driver.verify_connectivity()
         await self._ensure_indexes()
 
