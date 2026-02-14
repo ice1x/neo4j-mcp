@@ -1,8 +1,29 @@
 # AGENTS.md
 
+## MCP is your memory — use it
+
+> **If `knowledge-graph` MCP tools are available in your tool list, you MUST use them.**
+> Do NOT say "MCP is not connected". If you see tools like `create_entity`,
+> `add_migration`, `get_project_graph` — the MCP **is** connected. Use it.
+
+### Mandatory workflow for every subtask
+
+1. **Before starting work** — call `get_project_graph("<project>")` to load context.
+2. **After completing each subtask** (not at the end of the session — after **each** subtask):
+   - Call `create_entity` / `create_relationship` for any new or changed components.
+   - Call `add_observations` to record decisions, trade-offs, or notes.
+   - Call `add_migration` with the Cypher that captures the structural change.
+   - Call `apply_migration` to execute it immediately.
+3. **Never batch migrations** — one subtask = one migration, committed right away.
+4. **Never skip the graph update** saying "I'll do it later" or "I'll batch them at the end".
+
+If you are unsure whether MCP is available, try calling `list_projects`. If it works, MCP is live.
+
+---
+
 ## Knowledge Persistence Rule
 
-After every session that changes the project's architecture, data model, or business logic, **persist your findings as a numbered Python data migration**.
+In addition to live MCP calls, **persist each migration as a numbered Python file** so the knowledge is version-controlled alongside the code.
 
 ### Migration file format
 
@@ -69,6 +90,7 @@ if __name__ == "__main__":
 - Provide `CYPHER_DOWN` for reversibility when practical.
 - One migration per logical change — do not bundle unrelated changes.
 - Commit the migration file together with the code it documents.
+- **After writing the file**, also call `add_migration` + `apply_migration` via MCP so the live graph is updated immediately (don't just write files — push to Neo4j too).
 
 ### Example `migration.log`
 
