@@ -161,11 +161,30 @@ Edit the config file:
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
+If `neo4j-knowledge-mcp` is on your `PATH`:
+
 ```json
 {
   "mcpServers": {
     "knowledge-graph": {
       "command": "neo4j-knowledge-mcp",
+      "args": [
+        "--db-url", "bolt://localhost:7687",
+        "--username", "neo4j",
+        "--password", "password"
+      ]
+    }
+  }
+}
+```
+
+If installed into a conda / virtualenv, use the full path to the binary:
+
+```json
+{
+  "mcpServers": {
+    "knowledge-graph": {
+      "command": "/Users/you/miniconda/envs/localkg/bin/neo4j-knowledge-mcp",
       "args": [
         "--db-url", "bolt://localhost:7687",
         "--username", "neo4j",
