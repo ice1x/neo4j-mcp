@@ -117,7 +117,11 @@ neo4j-knowledge-mcp --transport streamable-http
 
 ### Claude Code (`.mcp.json`)
 
-Create `.mcp.json` in your project root:
+This repo ships a ready-made `.mcp.json` — clone and start a **new** Claude Code session, the tools will appear automatically.
+
+> **Note:** existing sessions do not pick up `.mcp.json` changes. You must start a new session.
+
+If you need to customize, edit `.mcp.json` in the project root:
 
 ```json
 {
@@ -270,6 +274,15 @@ Session N — Any future session
 ```
 
 Each session starts by loading the project graph and ends by persisting new knowledge back into it.
+
+## Project Files
+
+| File | Purpose |
+|---|---|
+| `.mcp.json` | MCP server config for Claude Code (auto-detected on session start) |
+| `AGENTS.md` | Agent instructions: how to persist knowledge and run migrations |
+| `docker/Dockerfile` | Neo4j 5.18 + APOC image |
+| `docker/start.sh` | One-command DB launcher with persistent volumes |
 
 ## Environment Variables
 
