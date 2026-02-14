@@ -82,6 +82,51 @@ if __name__ == "__main__":
     print("Run with Neo4j session.execute_write(run) to apply.")
 ```
 
+### Mandatory graph schema — read before writing any Cypher
+
+The MCP server discovers projects and entities **only** through the `:Entity` label
+and the `project` property. If a node lacks either of these, it is **invisible** to
+`list_projects`, `get_project_graph`, `search_knowledge`, and `get_entity`.
+
+**Rule: every domain node MUST be an `:Entity` with a `project` property.**
+Use `e.type` for domain semantics (Module, Struct, Service, …) — NOT a custom Neo4j label.
+
+```cypher
+-- ✅ CORRECT — visible to all MCP tools
+MERGE (e:Entity {name: 'config', project: 'my-app'})
+SET e.type = 'Module',
+    e.observations = coalesce(e.observations, []) + ['Handles app configuration']
+
+-- ❌ WRONG — creates :Module node, invisible to MCP
+CREATE (m:Module {name: 'config'})
+```
+
+When modelling relationships, **both endpoints must be `:Entity`** nodes within the
+same project:
+
+```cypher
+-- ✅ CORRECT
+MATCH (a:Entity {name: 'config', project: 'my-app'})
+MATCH (b:Entity {name: 'AppSettings', project: 'my-app'})
+MERGE (a)-[:DEFINES]->(b)
+
+-- ❌ WRONG — uses custom labels, MCP will not traverse these
+MATCH (m:Module {name: 'config'})
+MATCH (s:Struct {name: 'AppSettings'})
+MERGE (m)-[:DEFINES]->(s)
+```
+
+Summary of required node shape:
+
+| Property       | Required | Description                                        |
+|----------------|----------|----------------------------------------------------|
+| label `:Entity`| **yes**  | The only label the MCP server queries               |
+| `name`         | **yes**  | Unique identifier within the project                 |
+| `project`      | **yes**  | Project name — used for filtering and `list_projects`|
+| `type`         | **yes**  | Domain type: Module, Struct, Service, Decision, …    |
+| `observations` | optional | Append-only list of free-text notes                  |
+| any other key  | optional | Arbitrary properties (`SET e.foo = 'bar'`)           |
+
 ### Rules for the agent
 
 - **Always** increment the migration number.
@@ -91,6 +136,7 @@ if __name__ == "__main__":
 - One migration per logical change — do not bundle unrelated changes.
 - Commit the migration file together with the code it documents.
 - **After writing the file**, also call `add_migration` + `apply_migration` via MCP so the live graph is updated immediately (don't just write files — push to Neo4j too).
+- **Never** use custom Neo4j labels (`:Module`, `:Struct`, `:Task`, …) instead of `:Entity`. Domain typing goes into `e.type`.
 
 ### Example `migration.log`
 
